@@ -1,0 +1,106 @@
+version: "3.9"
+
+# ══════════════════════════════════════════════════════════════════════════════
+# NPMAI AGENTIC WORLD — Docker Compose
+# Runs the full stack: experiment engine + web API + frontend + redis
+# ══════════════════════════════════════════════════════════════════════════════
+
+services:
+
+  # ── Redis (hot memory cache) ───────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Ollama (local LLM server) ──────────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    # If no GPU: remove the deploy.resources section above
+
+  # ── Experiment Engine (the world itself) ──────────────────────────────────
+  npmai-world:
+    build:
+      context: .
+      dockerfile: Dockerfile.world
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
+      - REDIS_URL=redis://redis:6379/0
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - PLANNER_MODEL=${PLANNER_MODEL:-llama3.2:3b}
+      - CODER_MODEL=${CODER_MODEL:-codellama:7b}
+      - AUDITOR_MODEL=${AUDITOR_MODEL:-qwen2.5-coder:7b}
+      - VERIFIER_MODEL=${VERIFIER_MODEL:-llama3.2:3b}
+      - TICK_DURATION_SECONDS=${TICK_DURATION_SECONDS:-10}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      - world_state:/app/state
+      - ./npmai_agentic_world:/app/npmai_agentic_world:ro
+    command: python main.py start --headless --territories 3 --agents 10
+
+  # ── Web API (FastAPI) ──────────────────────────────────────────────────────
+  npmai-web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    restart: unless-stopped
+    depends_on:
+      - npmai-world
+      - redis
+    ports:
+      - "${WEB_PORT:-8000}:8000"
+    environment:
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - REDIS_URL=redis://redis:6379/0
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRE_HOURS=${JWT_EXPIRE_HOURS:-72}
+      - CORS_ORIGINS=${CORS_ORIGINS}
+      - ADMIN_SECRET=${ADMIN_SECRET}
+    volumes:
+      - ./npmai_agentic_world:/app/npmai_agentic_world:ro
+    command: uvicorn web.backend.api:app --host 0.0.0.0 --port 8000 --workers 4
+
+  # ── Frontend (nginx serving static Three.js app) ───────────────────────────
+  npmai-frontend:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    volumes:
+      - ./web/frontend:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - npmai-web
+
+volumes:
+  redis_data:
+  ollama_models:
+  world_state:
