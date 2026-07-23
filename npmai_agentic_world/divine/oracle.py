@@ -88,11 +88,11 @@ class Oracle:
     #            "divine_favor_change": 0.01, "message_id": "..."}
     """
 
-    def __init__(self) -> None:
+    def __init__(self, event_logger: Optional[EventLogger] = None) -> None:
         self._persona_manager = PersonaManager()
         self._broker          = MessageBroker()
         self._history:        List[Dict[str, Any]] = []   # in-memory log
-        self._logger          = EventLogger.get_instance()
+        self._logger          = event_logger
 
     # ─────────────────────────────────────────────────────────────────────────
     # send_message — single-agent delivery

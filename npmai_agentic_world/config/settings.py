@@ -117,6 +117,12 @@ class ExperimentSettings:
         # crashes the world; unknown keys are dropped with a warning.
         valid_fields = {f for f in cls.__dataclass_fields__}
         filtered = {k: v for k, v in data.items() if k in valid_fields}
+        filtered["supabase_url"] = os.environ.get(
+            "SUPABASE_URL", filtered.get("supabase_url", "")
+        )
+        filtered["supabase_key"] = os.environ.get(
+            "SUPABASE_KEY", filtered.get("supabase_key", "")
+        )
         dropped = set(data) - valid_fields
         if dropped:
             logger.warning("Ignoring unknown settings keys: %s", sorted(dropped))

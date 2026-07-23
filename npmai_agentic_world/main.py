@@ -33,8 +33,8 @@ from rich.text import Text
 from rich import print as rprint
 from dotenv import load_dotenv
 
-# Load environment variables first
-load_dotenv()
+# Load environment variables first, including the package-local dotenv file
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
 # ── Internal imports (all sessions) ──────────────────────────────────────────
 from config.settings import load_settings, ExperimentSettings
@@ -75,13 +75,14 @@ def _banner():
     ))
 
 
-def _get_supabase() -> SupabaseClient:
-    url = os.getenv("SUPABASE_URL")
-    key = os.getenv("SUPABASE_SERVICE_KEY")
+async def _get_supabase() -> SupabaseClient:
+    configured = load_settings()
+    url = configured.supabase_url
+    key = configured.supabase_key
     if not url or not key:
-        console.print("[red]ERROR:[/red] SUPABASE_URL and SUPABASE_SERVICE_KEY must be set in .env")
+        console.print("[red]ERROR:[/red] SUPABASE_URL and SUPABASE_KEY must be set in .env")
         raise typer.Exit(1)
-    return SupabaseClient(url, key)
+    return await SupabaseClient.get_instance()
 
 
 async def _bootstrap(settings: ExperimentSettings) -> tuple[WorldController, WorldClock, Oracle]:
@@ -92,31 +93,29 @@ async def _bootstrap(settings: ExperimentSettings) -> tuple[WorldController, Wor
                   console=console) as progress:
 
         t = progress.add_task("Connecting to Supabase...", total=None)
-        db = _get_supabase()
-        await db.create_all_tables()
+        db = await _get_supabase()
         progress.update(t, description="[green]Supabase connected[/green]")
 
         t2 = progress.add_task("Starting event logger...", total=None)
-        logger = EventLogger(db)
-        await logger.start()
+        logger = await EventLogger.get_instance()
         progress.update(t2, description="[green]Event logger running[/green]")
 
         t3 = progress.add_task("Initializing gene bank...", total=None)
-        gene_bank = GeneBank(db)
+        gene_bank = GeneBank()
         progress.update(t3, description="[green]Gene bank ready[/green]")
 
         t4 = progress.add_task("Initializing snapshot engine...", total=None)
-        snapshot_engine = SnapshotEngine(db)
+        snapshot_engine = SnapshotEngine()
         progress.update(t4, description="[green]Snapshot engine ready[/green]")
 
         t5 = progress.add_task("Building world...", total=None)
-        world = WorldController(settings, db, logger, gene_bank, snapshot_engine)
+        world = WorldController(settings)
         _world = world
         progress.update(t5, description="[green]World controller ready[/green]")
 
         clock = WorldClock(tick_duration_seconds=settings.tick_duration_seconds)
         _clock = clock
-        oracle = Oracle(db, logger)
+        oracle = Oracle(logger)
 
     return world, clock, oracle
 
@@ -425,7 +424,7 @@ def divine(
         db = _get_supabase()
         logger = EventLogger(db)
         await logger.start()
-        oracle = Oracle(db, logger)
+        oracle = Oracle(logger)
 
         # We load world state minimally just to find the agent
         settings = load_settings()

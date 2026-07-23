@@ -154,14 +154,15 @@ class WorldController:
 
         # ── Create genesis agents ─────────────────────────────────────────────
         for i in range(genesis_agents):
-            genome = GenomeFactory.create_founding_genome()
+            genome = GenomeFactory.create_genesis_genome()
 
             # Distribute round-robin across territories
             assigned_territory = territory_list[i % len(territory_list)]
 
             founding_myth = generate_agent_founding_myth(
                 agent_id=str(uuid.uuid4()),
-                name=f"Genesis-{i+1:03d}",
+                territory_name=assigned_territory.name,
+                agent_name=f"Genesis-{i+1:03d}",
                 generation=1,
             )
 
