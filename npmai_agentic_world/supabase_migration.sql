@@ -31,8 +31,8 @@ CREATE TABLE IF NOT EXISTS lineage_tree (
     still_alive     BOOLEAN DEFAULT TRUE,
     owner_user_id   UUID REFERENCES users(user_id) ON DELETE SET NULL
 );
-CREATE INDEX idx_lineage_genesis ON lineage_tree(genesis_agent_id);
-CREATE INDEX idx_lineage_owner ON lineage_tree(owner_user_id);
+CREATE INDEX IF NOT EXISTS idx_lineage_genesis ON lineage_tree(genesis_agent_id);
+CREATE INDEX IF NOT EXISTS idx_lineage_owner ON lineage_tree(owner_user_id);
 
 -- ── Agent states (current + historical snapshots) ─────────────────────────────
 CREATE TABLE IF NOT EXISTS agent_states (
@@ -63,12 +63,12 @@ CREATE TABLE IF NOT EXISTS agent_states (
     snapshot_at     TIMESTAMPTZ DEFAULT NOW(),
     is_latest       BOOLEAN DEFAULT TRUE
 );
-CREATE INDEX idx_agent_states_agent_id ON agent_states(agent_id);
-CREATE INDEX idx_agent_states_status ON agent_states(status);
-CREATE INDEX idx_agent_states_territory ON agent_states(territory_id);
-CREATE INDEX idx_agent_states_lineage ON agent_states(lineage_id);
-CREATE INDEX idx_agent_states_credits ON agent_states(credits DESC);
-CREATE INDEX idx_agent_states_latest ON agent_states(agent_id, is_latest);
+CREATE INDEX IF NOT EXISTS idx_agent_states_agent_id ON agent_states(agent_id);
+CREATE INDEX IF NOT EXISTS idx_agent_states_status ON agent_states(status);
+CREATE INDEX IF NOT EXISTS idx_agent_states_territory ON agent_states(territory_id);
+CREATE INDEX IF NOT EXISTS idx_agent_states_lineage ON agent_states(lineage_id);
+CREATE INDEX IF NOT EXISTS idx_agent_states_credits ON agent_states(credits DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_states_latest ON agent_states(agent_id, is_latest);
 
 -- ── Territory states ──────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS territory_states (
@@ -88,7 +88,7 @@ CREATE TABLE IF NOT EXISTS territory_states (
     snapshot_tick   INTEGER DEFAULT 0,
     snapshot_at     TIMESTAMPTZ DEFAULT NOW()
 );
-CREATE INDEX idx_territory_states_id ON territory_states(territory_id);
+CREATE INDEX IF NOT EXISTS idx_territory_states_id ON territory_states(territory_id);
 
 -- ── Genome bank (all genomes ever, including dead agents) ─────────────────────
 CREATE TABLE IF NOT EXISTS genome_bank (
@@ -113,10 +113,10 @@ CREATE TABLE IF NOT EXISTS genome_bank (
     can_be_resurrected BOOLEAN DEFAULT TRUE,
     expires_at      TIMESTAMPTZ DEFAULT (NOW() + INTERVAL '30 days')
 );
-CREATE INDEX idx_genome_bank_agent ON genome_bank(agent_id);
-CREATE INDEX idx_genome_bank_lineage ON genome_bank(lineage_id);
-CREATE INDEX idx_genome_bank_specialization ON genome_bank(specialization);
-CREATE INDEX idx_genome_bank_expiry ON genome_bank(expires_at);
+CREATE INDEX IF NOT EXISTS idx_genome_bank_agent ON genome_bank(agent_id);
+CREATE INDEX IF NOT EXISTS idx_genome_bank_lineage ON genome_bank(lineage_id);
+CREATE INDEX IF NOT EXISTS idx_genome_bank_specialization ON genome_bank(specialization);
+CREATE INDEX IF NOT EXISTS idx_genome_bank_expiry ON genome_bank(expires_at);
 
 -- ── World events (core data — partitioned by experiment_day) ──────────────────
 CREATE TABLE IF NOT EXISTS world_events (
@@ -134,23 +134,23 @@ CREATE TABLE IF NOT EXISTS world_events (
 ) PARTITION BY RANGE (experiment_day);
 
 -- Create initial partitions (days 1-30, 31-60, etc.)
-CREATE TABLE world_events_day_1_30
+CREATE TABLE IF NOT EXISTS world_events_day_1_30
     PARTITION OF world_events FOR VALUES FROM (1) TO (31);
-CREATE TABLE world_events_day_31_60
+CREATE TABLE IF NOT EXISTS world_events_day_31_60
     PARTITION OF world_events FOR VALUES FROM (31) TO (61);
-CREATE TABLE world_events_day_61_90
+CREATE TABLE IF NOT EXISTS world_events_day_61_90
     PARTITION OF world_events FOR VALUES FROM (61) TO (91);
-CREATE TABLE world_events_day_91_365
+CREATE TABLE IF NOT EXISTS world_events_day_91_365
     PARTITION OF world_events FOR VALUES FROM (91) TO (366);
-CREATE TABLE world_events_day_366_plus
+CREATE TABLE IF NOT EXISTS world_events_day_366_plus
     PARTITION OF world_events FOR VALUES FROM (366) TO (MAXVALUE);
 
-CREATE INDEX idx_world_events_type ON world_events(event_type);
-CREATE INDEX idx_world_events_agent ON world_events(agent_id);
-CREATE INDEX idx_world_events_territory ON world_events(territory_id);
-CREATE INDEX idx_world_events_timestamp ON world_events(timestamp DESC);
-CREATE INDEX idx_world_events_category ON world_events(event_category);
-CREATE INDEX idx_world_events_tick ON world_events(tick DESC);
+CREATE INDEX IF NOT EXISTS idx_world_events_type ON world_events(event_type);
+CREATE INDEX IF NOT EXISTS idx_world_events_agent ON world_events(agent_id);
+CREATE INDEX IF NOT EXISTS idx_world_events_territory ON world_events(territory_id);
+CREATE INDEX IF NOT EXISTS idx_world_events_timestamp ON world_events(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_world_events_category ON world_events(event_category);
+CREATE INDEX IF NOT EXISTS idx_world_events_tick ON world_events(tick DESC);
 
 -- ── Economic ledger (every credit transaction ever) ───────────────────────────
 CREATE TABLE IF NOT EXISTS economic_ledger (
@@ -163,10 +163,10 @@ CREATE TABLE IF NOT EXISTS economic_ledger (
     tick            INTEGER DEFAULT 0,
     experiment_day  INTEGER DEFAULT 1
 );
-CREATE INDEX idx_ledger_from ON economic_ledger(from_entity);
-CREATE INDEX idx_ledger_to ON economic_ledger(to_entity);
-CREATE INDEX idx_ledger_tick ON economic_ledger(tick DESC);
-CREATE INDEX idx_ledger_day ON economic_ledger(experiment_day);
+CREATE INDEX IF NOT EXISTS idx_ledger_from ON economic_ledger(from_entity);
+CREATE INDEX IF NOT EXISTS idx_ledger_to ON economic_ledger(to_entity);
+CREATE INDEX IF NOT EXISTS idx_ledger_tick ON economic_ledger(tick DESC);
+CREATE INDEX IF NOT EXISTS idx_ledger_day ON economic_ledger(experiment_day);
 
 -- ── Governance records ────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS governance_records (
@@ -186,9 +186,9 @@ CREATE TABLE IF NOT EXISTS governance_records (
     tick            INTEGER DEFAULT 0,
     experiment_day  INTEGER DEFAULT 1
 );
-CREATE INDEX idx_governance_territory ON governance_records(territory_id);
-CREATE INDEX idx_governance_type ON governance_records(record_type);
-CREATE INDEX idx_governance_status ON governance_records(status);
+CREATE INDEX IF NOT EXISTS idx_governance_territory ON governance_records(territory_id);
+CREATE INDEX IF NOT EXISTS idx_governance_type ON governance_records(record_type);
+CREATE INDEX IF NOT EXISTS idx_governance_status ON governance_records(status);
 
 -- ── Semantic graphs (per territory, versioned) ────────────────────────────────
 CREATE TABLE IF NOT EXISTS semantic_graphs (
@@ -203,9 +203,9 @@ CREATE TABLE IF NOT EXISTS semantic_graphs (
     last_updated    TIMESTAMPTZ DEFAULT NOW(),
     tick            INTEGER DEFAULT 0
 );
-CREATE INDEX idx_semantic_territory ON semantic_graphs(territory_id);
-CREATE INDEX idx_semantic_agent ON semantic_graphs(agent_id);
-CREATE INDEX idx_semantic_concept ON semantic_graphs USING gin(to_tsvector('english', concept));
+CREATE INDEX IF NOT EXISTS idx_semantic_territory ON semantic_graphs(territory_id);
+CREATE INDEX IF NOT EXISTS idx_semantic_agent ON semantic_graphs(agent_id);
+CREATE INDEX IF NOT EXISTS idx_semantic_concept ON semantic_graphs USING gin(to_tsvector('english', concept));
 
 -- ── Divine communications ─────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS divine_communications (
@@ -223,9 +223,9 @@ CREATE TABLE IF NOT EXISTS divine_communications (
     tick            INTEGER DEFAULT 0,
     experiment_day  INTEGER DEFAULT 1
 );
-CREATE INDEX idx_divine_agent ON divine_communications(agent_id);
-CREATE INDEX idx_divine_persona ON divine_communications(persona);
-CREATE INDEX idx_divine_tick ON divine_communications(tick DESC);
+CREATE INDEX IF NOT EXISTS idx_divine_agent ON divine_communications(agent_id);
+CREATE INDEX IF NOT EXISTS idx_divine_persona ON divine_communications(persona);
+CREATE INDEX IF NOT EXISTS idx_divine_tick ON divine_communications(tick DESC);
 
 -- ── Bad activity log ──────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS bad_activity_log (
@@ -242,9 +242,9 @@ CREATE TABLE IF NOT EXISTS bad_activity_log (
     tick            INTEGER DEFAULT 0,
     experiment_day  INTEGER DEFAULT 1
 );
-CREATE INDEX idx_bad_activity_agent ON bad_activity_log(agent_id);
-CREATE INDEX idx_bad_activity_type ON bad_activity_log(activity_type);
-CREATE INDEX idx_bad_activity_severity ON bad_activity_log(severity);
+CREATE INDEX IF NOT EXISTS idx_bad_activity_agent ON bad_activity_log(agent_id);
+CREATE INDEX IF NOT EXISTS idx_bad_activity_type ON bad_activity_log(activity_type);
+CREATE INDEX IF NOT EXISTS idx_bad_activity_severity ON bad_activity_log(severity);
 
 -- ── Research updates (Sonu posts these — public blog) ─────────────────────────
 CREATE TABLE IF NOT EXISTS research_updates (
@@ -258,8 +258,8 @@ CREATE TABLE IF NOT EXISTS research_updates (
     is_published    BOOLEAN DEFAULT TRUE,
     view_count      INTEGER DEFAULT 0
 );
-CREATE INDEX idx_research_published ON research_updates(published_at DESC);
-CREATE INDEX idx_research_tags ON research_updates USING gin(tags);
+CREATE INDEX IF NOT EXISTS idx_research_published ON research_updates(published_at DESC);
+CREATE INDEX IF NOT EXISTS idx_research_tags ON research_updates USING gin(tags);
 
 -- ── World snapshots (global state every 1000 ticks) ──────────────────────────
 CREATE TABLE IF NOT EXISTS world_snapshots (
@@ -279,7 +279,7 @@ CREATE TABLE IF NOT EXISTS world_snapshots (
     top_lineages    JSONB DEFAULT '[]',
     snapshot_at     TIMESTAMPTZ DEFAULT NOW()
 );
-CREATE INDEX idx_world_snapshots_tick ON world_snapshots(tick DESC);
+CREATE INDEX IF NOT EXISTS idx_world_snapshots_tick ON world_snapshots(tick DESC);
 
 -- ── Row Level Security (RLS) ──────────────────────────────────────────────────
 
@@ -295,6 +295,8 @@ CREATE POLICY research_public_read ON research_updates
 
 -- World events are read-only for everyone (append-only from server)
 ALTER TABLE world_events ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS world_events_read ON world_events;
 CREATE POLICY world_events_read ON world_events
     FOR SELECT USING (TRUE);
 
