@@ -6,8 +6,8 @@
   "default_chatter_provider": "npmai",
   "default_coder_model": "codellama:7b-instruct",
   "default_coder_provider": "npmai",
-  "default_planner_model": "llama3.2:3b",
-  "default_planner_provider": "npmai",
+  "default_planner_model": "openai/gpt-oss-120b",
+  "default_planner_provider": "groq",
   "default_verifier_model": "llama3.2:3b",
   "default_verifier_provider": "npmai",
   "elder_age_ticks": 100000,
@@ -32,7 +32,7 @@
   "snapshot_world_interval_ticks": 1000,
   "starting_capability_bits": 15,
   "starting_credits": 20.0,
-  "supabase_key": "",
-  "supabase_url": "",
+  "supabase_key": "-jGMA_Bw_as-w_unQ",
+  "supabase_url": "https://qyxuvuhhaspkuhbognyk.supabase.co",
   "tick_duration_seconds": 60
 }

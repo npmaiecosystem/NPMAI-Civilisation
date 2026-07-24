@@ -37,7 +37,8 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
 # ── Internal imports (all sessions) ──────────────────────────────────────────
-from config.settings import load_settings, ExperimentSettings
+from config.settings import load_settings, save_settings, ExperimentSettings
+from npmai_agents import CredStore
 from config.constants import (
     AgentStatus, DivinePersona, DivineMessageType,
     DeathMode, WORLD_CONSTANTS
@@ -62,6 +63,31 @@ console = Console()
 # Global world state (set on start, used by signal handlers)
 _world: Optional[WorldController] = None
 _clock: Optional[WorldClock] = None
+
+# ── LLM provider/role registry ────────────────────────────────────────────────
+# The five agent roles, matching ExperimentSettings' default_<role>_provider/model fields.
+ROLES = ["planner", "coder", "auditor", "verifier", "chatter"]
+
+# For every backend class npmai_agents ships: which fields CredStore needs,
+# whether each is secret (hidden input), whether it's required, and a default.
+# Tuple shape: (field_name, is_secret, prompt_text, required, default)
+PROVIDER_FIELDS: dict[str, list[tuple]] = {
+    "npmai":     [],  # hosted on npmai's free cloud endpoint — no key needed
+    "local":     [],  # Ollama running on your own machine — no key needed
+    "llamacpp":  [("base_url", False, "llama.cpp server URL", False, "http://localhost:8080")],
+    "openai":    [("api_key", True, "OpenAI API key", True, None)],
+    "anthropic": [("api_key", True, "Anthropic API key", True, None)],
+    "gemini":    [("api_key", True, "Google Gemini API key", True, None)],
+    "groq":      [("api_key", True, "Groq API key", True, None)],
+    "mistral":   [("api_key", True, "Mistral API key", True, None)],
+    "cohere":    [("api_key", True, "Cohere API key", True, None)],
+    "hf":        [("api_key", True, "HuggingFace API token", True, None)],
+    "azure":     [("api_key", True, "Azure OpenAI API key", True, None),
+                  ("endpoint", False, "Azure endpoint URL", True, None),
+                  ("deployment", False, "Azure deployment name", True, None),
+                  ("api_version", False, "Azure API version", False, "2024-08-01-preview")],
+    "bedrock":   [("region", False, "AWS region", False, "us-east-1")],
+}
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -541,6 +567,150 @@ def add_territory(
     console.print(f"  ID       : [cyan]{t.territory_id}[/cyan]")
     console.print(f"  Host     : [cyan]{host}[/cyan]")
     console.print(f"  Capacity : [cyan]{capacity} agents[/cyan]")
+
+
+@app.command("configure-llm")
+def configure_llm(
+    role: Optional[str] = typer.Option(None, "--role", "-r",
+                                        help=f"Agent role: {', '.join(ROLES)}"),
+    provider: Optional[str] = typer.Option(None, "--provider", "-p",
+                                            help=f"Provider: {', '.join(PROVIDER_FIELDS)}"),
+    model: Optional[str] = typer.Option(None, "--model", "-m",
+                                         help="Model name/id for this provider"),
+):
+    """
+    [bold cyan]Change the LLM provider/model for a role, any time.[/bold cyan]
+
+    Writes straight to settings.json, which the running world hot-reloads
+    automatically — no restart needed. If the chosen provider needs an API
+    key and none is stored yet, this will ask for it right here and encrypt
+    it into ~/.npmai_agent/creds.json via CredStore.
+
+    Run with no options for a fully interactive walkthrough, or pass
+    --role/--provider/--model to script it non-interactively.
+    """
+    _banner()
+
+    if not role:
+        console.print(f"[bold]Roles:[/bold] {', '.join(ROLES)}")
+        role = typer.prompt("Which role do you want to configure?").strip().lower()
+    role = role.lower()
+    if role not in ROLES:
+        console.print(f"[red]Invalid role '{role}'. Choose from: {', '.join(ROLES)}[/red]")
+        raise typer.Exit(1)
+
+    if not provider:
+        console.print(f"[bold]Providers:[/bold] {', '.join(PROVIDER_FIELDS)}")
+        provider = typer.prompt("Which provider?").strip().lower()
+    provider = provider.lower()
+    if provider not in PROVIDER_FIELDS:
+        console.print(f"[red]Invalid provider '{provider}'. Choose from: {', '.join(PROVIDER_FIELDS)}[/red]")
+        raise typer.Exit(1)
+
+    if not model:
+        model = typer.prompt("Model name/id for this provider").strip()
+
+    # --- 1. Persist provider/model to settings.json (hot-reloaded live) ---
+    settings = load_settings()
+    setattr(settings, f"default_{role}_provider", provider)
+    setattr(settings, f"default_{role}_model", model)
+    save_settings(settings)
+    console.print(f"\n[green]✓[/green] {role} → provider=[cyan]{provider}[/cyan] model=[cyan]{model}[/cyan]")
+    console.print("[dim]settings.json updated — picked up automatically, no restart needed.[/dim]")
+
+    # --- 2. Collect + encrypt-save the API key, if this provider needs one ---
+    fields = PROVIDER_FIELDS[provider]
+    if not fields:
+        console.print(f"[dim]'{provider}' needs no stored credentials.[/dim]")
+        raise typer.Exit(0)
+
+    if provider in CredStore.all_keys():
+        console.print(f"[dim]Credentials for '{provider}' are already saved. "
+                      f"Run 'set-key --provider {provider}' to overwrite them.[/dim]")
+        raise typer.Exit(0)
+
+    console.print(f"\n[yellow]'{provider}' needs credentials and none are stored yet.[/yellow]")
+    if not typer.confirm("Enter them now?", default=True):
+        console.print(f"[yellow]Skipped. Run later:[/yellow] "
+                      f"python main.py set-key --provider {provider}")
+        raise typer.Exit(0)
+
+    data = _prompt_provider_credentials(provider, fields)
+    CredStore.save(provider, data)
+    console.print(f"[green]✓ Credentials encrypted and saved[/green] for '{provider}' "
+                  f"to ~/.npmai_agent/creds.json")
+
+
+def _prompt_provider_credentials(provider: str, fields: list[tuple]) -> dict:
+    """Prompt for each credential field a provider needs, returns a dict for CredStore.save()."""
+    data = {}
+    for field_name, secret, prompt_text, required, default in fields:
+        raw = typer.prompt(prompt_text, hide_input=secret,
+                            default=default or "", show_default=bool(default))
+        value = raw.strip()
+        if value:
+            data[field_name] = value
+        elif required:
+            console.print(f"[red]'{field_name}' is required for '{provider}'.[/red]")
+            raise typer.Exit(1)
+    return data
+
+
+@app.command("set-key")
+def set_key(
+    provider: str = typer.Option(..., "--provider", "-p",
+                                  help=f"Provider: {', '.join(PROVIDER_FIELDS)}"),
+):
+    """
+    [bold cyan]Enter/overwrite the API key(s) for one provider.[/bold cyan]
+
+    Values are Fernet-encrypted at rest in ~/.npmai_agent/creds.json,
+    keyed by a machine-local secret at ~/.npmai_agent/.key.
+    """
+    _banner()
+    provider = provider.lower()
+    if provider not in PROVIDER_FIELDS:
+        console.print(f"[red]Invalid provider '{provider}'. Choose from: {', '.join(PROVIDER_FIELDS)}[/red]")
+        raise typer.Exit(1)
+
+    fields = PROVIDER_FIELDS[provider]
+    if not fields:
+        console.print(f"[yellow]'{provider}' needs no stored credentials (no API key required).[/yellow]")
+        raise typer.Exit(0)
+
+    data = _prompt_provider_credentials(provider, fields)
+    CredStore.save(provider, data)
+    console.print(f"[green]✓ Credentials encrypted and saved[/green] for '{provider}'")
+
+
+@app.command("show-llm-config")
+def show_llm_config():
+    """
+    [bold cyan]Show current LLM provider/model per role, and which providers have keys saved.[/bold cyan]
+    """
+    _banner()
+    settings = load_settings()
+    saved_keys = set(CredStore.all_keys())
+
+    table = Table(title="LLM Configuration", show_header=True, header_style="bold cyan")
+    table.add_column("Role", style="white")
+    table.add_column("Provider", style="cyan")
+    table.add_column("Model", style="yellow")
+    table.add_column("Key stored?", justify="center")
+
+    for role in ROLES:
+        prov = getattr(settings, f"default_{role}_provider")
+        model = getattr(settings, f"default_{role}_model")
+        needs_key = bool(PROVIDER_FIELDS.get(prov))
+        if not needs_key:
+            status = "[dim]n/a[/dim]"
+        elif prov in saved_keys:
+            status = "[green]✓[/green]"
+        else:
+            status = "[red]✗[/red]"
+        table.add_row(role, prov, model, status)
+
+    console.print(table)
 
 
 @app.command()
