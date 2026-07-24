@@ -32,7 +32,7 @@ from typing import Any, Dict, List, Optional, Tuple
 # LLM backends are accessed via the provider string in npmai_agents internals;
 # the package uses "npmai", "local" (Ollama), "openai", "groq", etc.
 # AgentBrain accepts backend objects; the package exposes them as shown below.
-from npmai_agents import AgentBrain  # noqa: E402
+from npmai_agents import AgentBrain, CredStore # noqa: E402
 
 # ── Project imports ───────────────────────────────────────────────────────────
 from config.constants import (
@@ -83,10 +83,74 @@ def _build_backend(provider: str, model: str):
         "llamacpp" → llama.cpp local
     """
     try:
-        # npmai_agents exposes a unified backend factory; if the package
-        # evolves to a direct class per provider we can swap here.
-        from npmai_agents import create_backend  # type: ignore
-        return create_backend(provider=provider, model=model)
+        from npmai_agents import Ollama_Local, OpenAIBackend, AnthropicBackend, GeminiBackend, GroqBackend, MistralBackend, CohereBackend, AzureOpenAIBackend, BedrockBackend, HuggingFaceBackend, LlamaCppBackend
+        _class_map = {
+            "npmai":     "NPMAIBackend",
+            "local":     "OllamaBackend",
+            "openai":    "OpenAIBackend",
+            "groq":      "GroqBackend",
+            "anthropic": "AnthropicBackend",
+            "gemini":    "GeminiBackend",
+            "mistral":   "MistralBackend",
+            "cohere":    "CohereBackend",
+            "azure":     "AzureBackend",
+            "bedrock":   "BedrockBackend",
+            "hf":        "HuggingFaceBackend",
+            "llamacpp":  "LlamaCppBackend",
+        }
+
+        class_name = _class_map.get(provider, "NPMAIBackend")
+        classes = ["openai", "anthropic", "gemini", "groq", "mistral", "cohere", "hf"] 
+        if provider in classes:
+            Backend = _class_map.get(provider, "NPMAIBackend")
+            if api_key is None:
+                try:
+                    api_keys = CredStore.load(provider)
+                    try:
+                        conf_llm = Backend(api_key=api_keys,model=model)
+                        if conf_llm:
+                            return conf_llm
+                        else:
+                            return "Sorry no response from LLM."
+                    except:
+                        return "Problem in LLM"
+                except:
+                    return "Sorry your API_key is not found"
+            elif api_key:
+                try:
+                    conf_llm = Backend(api_key=api_key,model=model)
+                    if conf_llm:
+                        return conf_llm
+                    else:
+                        return "Sorry no response from LLM."
+                except:
+                    return "Problem in LLM"
+            else:
+                return "Sorry yourn API_key is not found"
+        elif provider=="ollama":
+            try:
+                conf_llm = Ollama_Local(model=model, temperature= temperature if temperature else 0.2)
+                if conf_llm:
+                    return conf_llm
+                else:
+                    return "Sorry no response from LLM."
+            except:
+                return "Problem in LLM"
+        elif provider=="azure":
+            try:
+                if api_key and endpoint and deployment:
+                    try:
+                        conf_llm = AzureOpenAIBackend(api_key=api_key, endpoint=endpoint, deployment=deployment, api_version= api_version if api_version else "2024-08-01-preview")
+                        if conf_llm:
+                            return conf_llm
+                        else:
+                            return "Sorry no response from LLM."
+                    except:
+                        return "Problem in LLM."
+                elif api_key and endpoint and deployment is None:
+                    return "Sorry you did not entered"
+                    """ TOMMOROW WE WILL CONTINUE """
+                    
     except ImportError:
         # Fallback: the package may expose provider-named classes.
         # We attempt common names and fall through gracefully.
@@ -111,7 +175,8 @@ def _build_backend(provider: str, model: str):
             # Ultimate fallback — return a plain dict spec; AgentBrain may
             # accept this depending on the package version.
             return {"provider": provider, "model": model}
-        return BackendClass(model=model)
+        else:
+            return BackendClass(api_key=model=model)
 
 
 def _backends_from_genome(genome: Genome) -> Dict[str, Any]:
