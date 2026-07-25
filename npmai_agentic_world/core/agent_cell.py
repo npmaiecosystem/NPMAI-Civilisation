@@ -12,7 +12,7 @@ Session: 3 (agent_cell + lifecycle)
 """
 
 from __future__ import annotations
-
+import os
 from pathlib import Path
 import sys
 root_dir = Path(__file__).resolve().parent.parent
