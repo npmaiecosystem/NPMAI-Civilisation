@@ -62,111 +62,122 @@ def _utc_now_ms() -> int:
 
 
 def _build_backend(provider: str, model: str):
-    """
-    Construct an LLM backend object accepted by AgentBrain.
+    from npmai_agents import (
+        LLMBackend,
+        Ollama_Local,
+        OpenAIBackend,
+        AnthropicBackend,
+        GeminiBackend,
+        GroqBackend,
+        MistralBackend,
+        CohereBackend,
+        AzureOpenAIBackend,
+        BedrockBackend,
+        HuggingFaceBackend,
+        LlamaCppBackend,
+        CredStore,
+    )
+    from npmai import Ollama
 
-    npmai_agents supports 12 providers; we import lazily so missing optional
-    deps don't crash the whole world at startup.
+    p = (provider or "npmai").lower().strip()
+    model = model or "llama3.2:3b"
 
-    Provider strings mirror the CLI reference from the README:
-        "npmai"    → NPMAI free endpoint (default, no creds needed)
-        "local"    → local Ollama
-        "openai"   → OpenAI
-        "groq"     → Groq
-        "anthropic"→ Anthropic
-        "gemini"   → Gemini
-        "mistral"  → Mistral
-        "cohere"   → Cohere
-        "azure"    → Azure OpenAI
-        "bedrock"  → AWS Bedrock
-        "hf"       → HuggingFace Inference
-        "llamacpp" → llama.cpp local
-    """
-    try:
-        from npmai_agents import Ollama_Local, OpenAIBackend, AnthropicBackend, GeminiBackend, GroqBackend, MistralBackend, CohereBackend, AzureOpenAIBackend, BedrockBackend, HuggingFaceBackend, LlamaCppBackend
-        _class_map = {
-            "npmai":     "Ollama",
-            "local":     "OllamaBackend",
-            "openai":    "OpenAIBackend",
-            "groq":      "GroqBackend",
-            "anthropic": "AnthropicBackend",
-            "gemini":    "GeminiBackend",
-            "mistral":   "MistralBackend",
-            "cohere":    "CohereBackend",
-            "azure":     "AzureOpenAIBackend",
-            "bedrock":   "BedrockBackend",
-            "hf":        "HuggingFaceBackend",
-            "llamacpp":  "LlamaCppBackend",
-        }
+    class NPMAIBackend(LLMBackend):
+        def __init__(self, model: str, temperature: float = 0.3):
+            self._llm = Ollama(model=model, temperature=temperature, change=True)
+            self.model = model
 
-        class_name = _class_map.get(provider, "Ollama")
-        classes = ["openai", "anthropic", "gemini", "groq", "mistral", "cohere", "hf"] 
-        if provider in classes:
-            Backend = _class_map.get(provider, "NPMAIBackend")
-            if api_key is None:
-                try:
-                    api_keys = CredStore.load(provider)
-                    try:
-                        conf_llm = Backend(api_key=api_keys,model=model)
-                        if conf_llm:
-                            return conf_llm
-                        else:
-                            return "Sorry no response from LLM."
-                    except:
-                        return "Problem in LLM"
-                except:
-                    return "Sorry your API_key is not found"
-            elif api_key:
-                try:
-                    conf_llm = Backend(api_key=api_key,model=model)
-                    if conf_llm:
-                        return conf_llm
-                    else:
-                        return "Sorry no response from LLM."
-                except:
-                    return "Problem in LLM"
-            else:
-                return "Sorry yourn API_key is not found"
-        elif provider=="ollama":
-            try:
-                conf_llm = Ollama_Local(model=model, temperature= temperature if temperature else 0.2)
-                if conf_llm:
-                    return conf_llm
-                else:
-                    return "Sorry no response from LLM."
-            except:
-                return "Problem in LLM"
-        elif provider=="azure":
-            if api_key and endpoint and deployment:
-                try:
-                    conf_llm = AzureOpenAIBackend(api_key=api_key, endpoint=endpoint, deployment=deployment, api_version= api_version if api_version else "2024-08-01-preview")
-                    if conf_llm:
-                        return conf_llm
-                    else:
-                        return "Sorry problem in configuration of LLM."
-                except:
-                    return "Problem in LLM."
-            elif api_key and endpoint and deployment is None:
-                return "Sorry you did not entered some important arguments api_key, endpoint, deployment."
-            else:
-                return "Please check again is you entered arguments in proper way or not" 
-        elif provider=="llamacpp":
-            try:
-                conf_llm = LlamaCppBackend()
-                if conf_llm:
-                    return conf_llm
-                else:
-                    return "Some problem in configuration of LLM."
-            except:
-                return "Problem in Configuration check the server"
-        else:
-            try:
-                from npmai import Ollama
-                llm = Ollama(model=model,temperature=0.5)
-                return llm
-            except:
-                return "Please install npmai"
-                
+        def invoke(self, prompt: str) -> str:
+            return self._llm.invoke(prompt)
+
+    def _creds(name: str) -> dict:
+        try:
+            data = CredStore.load(name)
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    if p == "npmai":
+        return NPMAIBackend(model=model)
+
+    if p in ("local", "ollama"):
+        return Ollama_Local(model=model)
+
+    if p == "openai":
+        key = _creds("openai").get("api_key") or os.environ.get("OPENAI_API_KEY")
+        if not key:
+            raise RuntimeError("OpenAI API key missing. Run: python main.py set-key --provider openai")
+        return OpenAIBackend(api_key=key, model=model)
+
+    if p == "groq":
+        key = _creds("groq").get("api_key") or os.environ.get("GROQ_API_KEY")
+        if not key:
+            raise RuntimeError("Groq API key missing. Run: python main.py set-key --provider groq")
+        return GroqBackend(api_key=key, model=model)
+
+    if p == "anthropic":
+        key = _creds("anthropic").get("api_key") or os.environ.get("ANTHROPIC_API_KEY")
+        if not key:
+            raise RuntimeError("Anthropic API key missing. Run: python main.py set-key --provider anthropic")
+        return AnthropicBackend(api_key=key, model=model)
+
+    if p == "gemini":
+        key = _creds("gemini").get("api_key") or os.environ.get("GOOGLE_API_KEY")
+        if not key:
+            raise RuntimeError("Gemini API key missing. Run: python main.py set-key --provider gemini")
+        return GeminiBackend(api_key=key, model=model)
+
+    if p == "mistral":
+        key = _creds("mistral").get("api_key") or os.environ.get("MISTRAL_API_KEY")
+        if not key:
+            raise RuntimeError("Mistral API key missing. Run: python main.py set-key --provider mistral")
+        return MistralBackend(api_key=key, model=model)
+
+    if p == "cohere":
+        key = _creds("cohere").get("api_key") or os.environ.get("COHERE_API_KEY")
+        if not key:
+            raise RuntimeError("Cohere API key missing. Run: python main.py set-key --provider cohere")
+        return CohereBackend(api_key=key, model=model)
+
+    if p == "hf":
+        key = _creds("hf").get("api_key") or os.environ.get("HF_TOKEN")
+        if not key:
+            raise RuntimeError("HuggingFace token missing. Run: python main.py set-key --provider hf")
+        return HuggingFaceBackend(api_key=key, model=model)
+
+    if p == "azure":
+        c = _creds("azure")
+        key = c.get("api_key") or os.environ.get("AZURE_OPENAI_API_KEY")
+        endpoint = c.get("endpoint") or os.environ.get("AZURE_OPENAI_ENDPOINT")
+        deployment = c.get("deployment") or model
+        api_version = c.get("api_version", "2024-08-01-preview")
+        if not (key and endpoint and deployment):
+            raise RuntimeError(
+                "Azure needs api_key + endpoint + deployment. "
+                "Run: python main.py set-key --provider azure"
+            )
+        return AzureOpenAIBackend(
+            api_key=key,
+            endpoint=endpoint,
+            deployment=deployment,
+            api_version=api_version,
+        )
+
+    if p == "bedrock":
+        c = _creds("bedrock")
+        region = c.get("region", "us-east-1")
+        return BedrockBackend(model=model, region=region)
+
+    if p == "llamacpp":
+        c = _creds("llamacpp")
+        base_url = c.get("base_url", "http://localhost:8080")
+        try:
+            return LlamaCppBackend(model=model, base_url=base_url)
+        except TypeError:
+            return LlamaCppBackend()
+
+    # Unknown provider → free NPMAI cloud endpoint
+    return NPMAIBackend(model=model)
             
 def _backends_from_genome(genome: Genome) -> Dict[str, Any]:
     """
