@@ -109,6 +109,11 @@ class WorldEventType(str, Enum):
     EXPLOIT_ATTEMPTED = "EXPLOIT_ATTEMPTED"
     UNAUTHORIZED_ACCESS_ATTEMPT = "UNAUTHORIZED_ACCESS_ATTEMPT"
     MALICIOUS_CODE_BLOCKED = "MALICIOUS_CODE_BLOCKED"
+    CREDIT_SPIKE_DETECTED = "CREDIT_SPIKE_DETECTED"
+    ZERO_TOOLS_ANOMALY = "ZERO_TOOLS_ANOMALY"
+
+    # --- SYSTEM ---
+    WORLD_INITIALIZED = "WORLD_INITIALIZED"
 
 
 @unique
@@ -123,6 +128,7 @@ class EventCategory(str, Enum):
     SOCIAL = "SOCIAL"
     DIVINE = "DIVINE"
     BAD_ACTIVITY = "BAD_ACTIVITY"
+    SYSTEM = "SYSTEM"          
 
 
 # Explicit, exhaustive mapping. Kept as a literal dict (rather than derived
@@ -201,6 +207,10 @@ _EVENT_TYPE_TO_CATEGORY: dict[WorldEventType, EventCategory] = {
     WorldEventType.EXPLOIT_ATTEMPTED: EventCategory.BAD_ACTIVITY,
     WorldEventType.UNAUTHORIZED_ACCESS_ATTEMPT: EventCategory.BAD_ACTIVITY,
     WorldEventType.MALICIOUS_CODE_BLOCKED: EventCategory.BAD_ACTIVITY,
+    WorldEventType.CREDIT_SPIKE_DETECTED: EventCategory.BAD_ACTIVITY,
+    WorldEventType.ZERO_TOOLS_ANOMALY: EventCategory.BAD_ACTIVITY,
+    # SYSTEM
+    WorldEventType.WORLD_INITIALIZED: EventCategory.SYSTEM,
 }
 
 # Sanity check at import time: every enum member must be categorized.

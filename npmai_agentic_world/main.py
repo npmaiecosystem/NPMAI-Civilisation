@@ -66,7 +66,7 @@ _clock: Optional[WorldClock] = None
 
 # ── LLM provider/role registry ────────────────────────────────────────────────
 # The five agent roles, matching ExperimentSettings' default_<role>_provider/model fields.
-ROLES = ["planner", "coder", "auditor", "verifier", "chatter"]
+ROLES = ["planner", "tool_selector", "coder", "auditor", "verifier", "chatter"]
 
 # For every backend class npmai_agents ships: which fields CredStore needs,
 # whether each is secret (hidden input), whether it's required, and a default.

@@ -194,7 +194,7 @@ async def ensure_users_table() -> None:
     Create the `users` table in Supabase if it doesn't exist.
     Called once at application startup.
     """
-    client = SupabaseClient.get_instance()
+    client = await SupabaseClient.get_instance()
     sql = """
     CREATE TABLE IF NOT EXISTS users (
         user_id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -275,7 +275,7 @@ async def register(
     user_id = str(uuid.uuid4())
 
     # ── insert into Supabase ──────────────────────────────────────────────────
-    client = SupabaseClient.get_instance()
+    client = await SupabaseClient.get_instance()
     try:
         await client.insert(
             "users",

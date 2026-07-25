@@ -91,6 +91,8 @@ class ExperimentSettings:
     # --- LLM backend defaults (mirrors npmai_agents AgentBrain role defaults) ---
     default_planner_provider: str = "npmai"
     default_planner_model: str = "llama3.2:3b"
+    default_tool_selector_provider: str = "npmai"
+    default_tool_selector_model: str = "llama3.2:3b"
     default_coder_provider: str = "npmai"
     default_coder_model: str = "codellama:7b-instruct"
     default_auditor_provider: str = "npmai"

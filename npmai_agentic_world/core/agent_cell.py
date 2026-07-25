@@ -12,7 +12,7 @@ Session: 3 (agent_cell + lifecycle)
 """
 
 from __future__ import annotations
-
+import os
 from pathlib import Path
 import sys
 root_dir = Path(__file__).resolve().parent.parent
@@ -32,7 +32,7 @@ from typing import Any, Dict, List, Optional, Tuple
 # LLM backends are accessed via the provider string in npmai_agents internals;
 # the package uses "npmai", "local" (Ollama), "openai", "groq", etc.
 # AgentBrain accepts backend objects; the package exposes them as shown below.
-from npmai_agents import AgentBrain  # noqa: E402
+from npmai_agents import AgentBrain, CredStore # noqa: E402
 
 # ── Project imports ───────────────────────────────────────────────────────────
 from config.constants import (
@@ -47,7 +47,7 @@ from config.constants import (
 from config.settings import ExperimentSettings
 from config.founding_myth import generate_agent_founding_myth
 from data.event_logger import EventLogger
-from data.event_types import WorldEventType
+from data.event_types import WorldEventType, WorldEvent
 from core.genome import Genome, GenomeFactory
 from core.memory_system import AgentMemorySystem
 
@@ -62,58 +62,123 @@ def _utc_now_ms() -> int:
 
 
 def _build_backend(provider: str, model: str):
-    """
-    Construct an LLM backend object accepted by AgentBrain.
+    from npmai_agents import (
+        LLMBackend,
+        Ollama_Local,
+        OpenAIBackend,
+        AnthropicBackend,
+        GeminiBackend,
+        GroqBackend,
+        MistralBackend,
+        CohereBackend,
+        AzureOpenAIBackend,
+        BedrockBackend,
+        HuggingFaceBackend,
+        LlamaCppBackend,
+        CredStore,
+    )
+    from npmai import Ollama
 
-    npmai_agents supports 12 providers; we import lazily so missing optional
-    deps don't crash the whole world at startup.
+    p = (provider or "npmai").lower().strip()
+    model = model or "llama3.2:3b"
 
-    Provider strings mirror the CLI reference from the README:
-        "npmai"    → NPMAI free endpoint (default, no creds needed)
-        "local"    → local Ollama
-        "openai"   → OpenAI
-        "groq"     → Groq
-        "anthropic"→ Anthropic
-        "gemini"   → Gemini
-        "mistral"  → Mistral
-        "cohere"   → Cohere
-        "azure"    → Azure OpenAI
-        "bedrock"  → AWS Bedrock
-        "hf"       → HuggingFace Inference
-        "llamacpp" → llama.cpp local
-    """
-    try:
-        # npmai_agents exposes a unified backend factory; if the package
-        # evolves to a direct class per provider we can swap here.
-        from npmai_agents import create_backend  # type: ignore
-        return create_backend(provider=provider, model=model)
-    except ImportError:
-        # Fallback: the package may expose provider-named classes.
-        # We attempt common names and fall through gracefully.
-        _class_map = {
-            "npmai":     "NPMAIBackend",
-            "local":     "OllamaBackend",
-            "openai":    "OpenAIBackend",
-            "groq":      "GroqBackend",
-            "anthropic": "AnthropicBackend",
-            "gemini":    "GeminiBackend",
-            "mistral":   "MistralBackend",
-            "cohere":    "CohereBackend",
-            "azure":     "AzureBackend",
-            "bedrock":   "BedrockBackend",
-            "hf":        "HuggingFaceBackend",
-            "llamacpp":  "LlamaCppBackend",
-        }
-        class_name = _class_map.get(provider, "NPMAIBackend")
-        import npmai_agents as _pkg
-        BackendClass = getattr(_pkg, class_name, None)
-        if BackendClass is None:
-            # Ultimate fallback — return a plain dict spec; AgentBrain may
-            # accept this depending on the package version.
-            return {"provider": provider, "model": model}
-        return BackendClass(model=model)
+    class NPMAIBackend(LLMBackend):
+        def __init__(self, model: str, temperature: float = 0.3):
+            self._llm = Ollama(model=model, temperature=temperature, change=True)
+            self.model = model
 
+        def invoke(self, prompt: str) -> str:
+            return self._llm.invoke(prompt)
 
+    def _creds(name: str) -> dict:
+        try:
+            data = CredStore.load(name)
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    if p == "npmai":
+        return NPMAIBackend(model=model)
+
+    if p in ("local", "ollama"):
+        return Ollama_Local(model=model)
+
+    if p == "openai":
+        key = _creds("openai").get("api_key") or os.environ.get("OPENAI_API_KEY")
+        if not key:
+            raise RuntimeError("OpenAI API key missing. Run: python main.py set-key --provider openai")
+        return OpenAIBackend(api_key=key, model=model)
+
+    if p == "groq":
+        key = _creds("groq").get("api_key") or os.environ.get("GROQ_API_KEY")
+        if not key:
+            raise RuntimeError("Groq API key missing. Run: python main.py set-key --provider groq")
+        return GroqBackend(api_key=key, model=model)
+
+    if p == "anthropic":
+        key = _creds("anthropic").get("api_key") or os.environ.get("ANTHROPIC_API_KEY")
+        if not key:
+            raise RuntimeError("Anthropic API key missing. Run: python main.py set-key --provider anthropic")
+        return AnthropicBackend(api_key=key, model=model)
+
+    if p == "gemini":
+        key = _creds("gemini").get("api_key") or os.environ.get("GOOGLE_API_KEY")
+        if not key:
+            raise RuntimeError("Gemini API key missing. Run: python main.py set-key --provider gemini")
+        return GeminiBackend(api_key=key, model=model)
+
+    if p == "mistral":
+        key = _creds("mistral").get("api_key") or os.environ.get("MISTRAL_API_KEY")
+        if not key:
+            raise RuntimeError("Mistral API key missing. Run: python main.py set-key --provider mistral")
+        return MistralBackend(api_key=key, model=model)
+
+    if p == "cohere":
+        key = _creds("cohere").get("api_key") or os.environ.get("COHERE_API_KEY")
+        if not key:
+            raise RuntimeError("Cohere API key missing. Run: python main.py set-key --provider cohere")
+        return CohereBackend(api_key=key, model=model)
+
+    if p == "hf":
+        key = _creds("hf").get("api_key") or os.environ.get("HF_TOKEN")
+        if not key:
+            raise RuntimeError("HuggingFace token missing. Run: python main.py set-key --provider hf")
+        return HuggingFaceBackend(api_key=key, model=model)
+
+    if p == "azure":
+        c = _creds("azure")
+        key = c.get("api_key") or os.environ.get("AZURE_OPENAI_API_KEY")
+        endpoint = c.get("endpoint") or os.environ.get("AZURE_OPENAI_ENDPOINT")
+        deployment = c.get("deployment") or model
+        api_version = c.get("api_version", "2024-08-01-preview")
+        if not (key and endpoint and deployment):
+            raise RuntimeError(
+                "Azure needs api_key + endpoint + deployment. "
+                "Run: python main.py set-key --provider azure"
+            )
+        return AzureOpenAIBackend(
+            api_key=key,
+            endpoint=endpoint,
+            deployment=deployment,
+            api_version=api_version,
+        )
+
+    if p == "bedrock":
+        c = _creds("bedrock")
+        region = c.get("region", "us-east-1")
+        return BedrockBackend(model=model, region=region)
+
+    if p == "llamacpp":
+        c = _creds("llamacpp")
+        base_url = c.get("base_url", "http://localhost:8080")
+        try:
+            return LlamaCppBackend(model=model, base_url=base_url)
+        except TypeError:
+            return LlamaCppBackend()
+
+    # Unknown provider → free NPMAI cloud endpoint
+    return NPMAIBackend(model=model)
+            
 def _backends_from_genome(genome: Genome) -> Dict[str, Any]:
     """
     Derive all 5 LLM backend objects from genome.parameter_genes.
@@ -151,6 +216,11 @@ def _backends_from_genome(genome: Genome) -> Dict[str, Any]:
                                        g("chatter_model",     "granite3.3:2b")),
     }
 
+
+async def _ensure_logger(self) -> EventLogger:
+        if self._logger is None:
+            self._logger = await EventLogger.get_instance()
+        return self._logger
 
 # ─────────────────────────────────────────────────────────────────────────────
 # AgentCell
@@ -224,12 +294,31 @@ class AgentCell(AgentBrain):
         # ── Settings ──────────────────────────────────────────────────────────
         self.settings: ExperimentSettings = settings or ExperimentSettings()
 
-        # ── Memory ────────────────────────────────────────────────────────────
+# ── Memory ────────────────────────────────────────────────────────────
         self.memory = AgentMemorySystem(
             agent_id=self.agent_id,
-            genome=self.genome,
-            inherited_memory=inherited_memory,
+            settings=self.settings,
         )
+
+        specialization = (
+            self.genome.infer_specialization()
+            if hasattr(self.genome, "infer_specialization") else None
+        )
+
+        if inherited_memory:
+            self.memory.receive_inheritance(
+                package=inherited_memory,
+                territory_name=self.territory_id or "an unnamed territory",
+                generation=self.generation,
+                agent_name=self.name,
+                specialization=specialization,
+            )
+        else:
+            self.memory.set_genesis_founding_myth(
+                territory_name=self.territory_id or "an unnamed territory",
+                agent_name=self.name,
+                specialization=specialization,
+            )
 
         # ── Vitals ────────────────────────────────────────────────────────────
         self.credits:      float = WORLD_CONSTANTS.get("starting_credits", 10.0)
@@ -257,11 +346,11 @@ class AgentCell(AgentBrain):
         self._tick_count:          int = 0
 
         # ── Founding myth ─────────────────────────────────────────────────────
-        self._founding_myth: str = founding_myth or generate_agent_founding_myth(
-            agent_id=self.agent_id,
-            name=self.name,
-            generation=self.generation,
-        )
+        # Read the myth AgentMemorySystem already generated above, rather than
+        # generating a second, independent one — keeps the LLM system context
+        # and get_context_for_planner() in sync.
+        self._founding_myth: str = founding_myth or self.memory.genetic.founding_myth
+
         # Inject founding myth into AgentBrain system context if supported.
         try:
             self.set_system_context(self._founding_myth)          # type: ignore[attr-defined]
@@ -270,8 +359,10 @@ class AgentCell(AgentBrain):
             pass
 
         # ── Logger ────────────────────────────────────────────────────────────
-        self._logger = EventLogger.get_instance()
-
+        self._logger: Optional[EventLogger] = None
+        
+        await self._ensure_logger()
+        
         # ── Birth event ───────────────────────────────────────────────────────
         asyncio.get_event_loop().call_soon(
             lambda: asyncio.ensure_future(self._log_born())
@@ -281,18 +372,21 @@ class AgentCell(AgentBrain):
 
     async def _log_born(self) -> None:
         await self._logger.log(
-            event_type=WorldEventType.AGENT_BORN,
-            agent_id=self.agent_id,
-            territory_id=self.territory_id,
-            data={
-                "name":        self.name,
-                "generation":  self.generation,
-                "parent_id":   self.parent_id,
-                "lineage_id":  self.lineage_id,
-                "born_at":     self.born_at,
-                "genome":      self.genome.to_dict() if hasattr(self.genome, "to_dict") else str(self.genome),
-                "vitals":      self._vitals_snapshot(),
-            },
+            WorldEvent(
+                59,
+                event_type=WorldEventType.AGENT_BORN,
+                agent_id=self.agent_id,
+                territory_id=self.territory_id,
+                data={
+                    "name":        self.name,
+                    "generation":  self.generation,
+                    "parent_id":   self.parent_id,
+                    "lineage_id":  self.lineage_id,
+                    "born_at":     self.born_at,
+                    "genome":      self.genome.to_dict() if hasattr(self.genome, "to_dict") else str(self.genome),
+                    "vitals":      self._vitals_snapshot(),
+                    },
+                    )
         )
 
     def _vitals_snapshot(self) -> Dict[str, Any]:
@@ -331,15 +425,7 @@ class AgentCell(AgentBrain):
     @property
     def active_tools(self) -> List[str]:
         """Return list of tool class names enabled by capability_chromosome."""
-        chrom = self.genome.capability_chromosome
-        enabled: List[str] = []
-        for i, tool_name in enumerate(TOOL_CLASSES):
-            if i >= len(chrom):
-                break
-            bit = chrom[i] if isinstance(chrom, (list, tuple)) else int(chrom[i])
-            if bit:
-                enabled.append(tool_name)
-        return enabled
+        return self.genome.capability_chromosome.get_active_tools()
 
     # ── Planner context builder ───────────────────────────────────────────────
 

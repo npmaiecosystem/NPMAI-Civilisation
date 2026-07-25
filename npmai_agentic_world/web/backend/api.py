@@ -58,6 +58,7 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 # ── project imports ───────────────────────────────────────────────────────────
@@ -1205,10 +1206,23 @@ async def health():
     }
 
 
-@app.get("/", tags=["Meta"])
-async def root():
+@app.get("/api", tags=["Meta"])
+async def api_root():
     return {
         "message": "NPMAI Agentic World API — Computational Civilisation Research",
         "docs": "/api/docs",
         "founder": "Sonu Kumar, 15, NPMAI ECOSYSTEM, Kota",
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Static frontend (web/frontend) — mounted LAST so it never shadows /api or /ws.
+# Serves index.html at "/" and all other assets (main.js, styles.css, etc.)
+# from the same origin, so main.js's relative API_BASE ('/api') and
+# WS_URL (`${host}/ws/world`) resolve correctly without any extra config.
+# ═══════════════════════════════════════════════════════════════════════════════
+_frontend_dir = Path(__file__).resolve().parent.parent / "frontend"
+if _frontend_dir.is_dir():
+    app.mount("/", StaticFiles(directory=str(_frontend_dir), html=True), name="frontend")
+else:
+    logger.warning("Frontend directory not found at %s — static UI will not be served.", _frontend_dir)

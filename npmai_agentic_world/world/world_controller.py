@@ -34,7 +34,7 @@ from config.constants import (
 from config.settings import ExperimentSettings
 from config.founding_myth import generate_agent_founding_myth
 from data.event_logger import EventLogger
-from data.event_types import WorldEventType
+from data.event_types import WorldEventType, WorldEvent
 from data.snapshot_engine import SnapshotEngine
 from data.gene_bank import GeneBank
 
@@ -58,6 +58,10 @@ def _attr(obj: Any, name: str, default: Any = None) -> Any:
         return obj.get(name, default)
     return getattr(obj, name, default)
 
+async def _ensure_logger(self) -> EventLogger:
+        if self._logger is None:
+            self._logger = await EventLogger.get_instance()
+        return self._logger
 
 class WorldController:
     """
@@ -101,7 +105,7 @@ class WorldController:
         self._pending_children:  List[Any] = []   # buffer between reproduce() and add
         self._bad_activity_log:  List[Dict[str, Any]] = []
 
-        self._logger = EventLogger.get_instance()
+        self._logger: Optional[EventLogger] = None
 
         logger.info("WorldController constructed (settings=%s)", self.settings)
 
@@ -121,7 +125,7 @@ class WorldController:
         5. Log WORLD_INITIALIZED
         """
         from core.agent_cell import AgentCell   # local to avoid circular at module level
-
+        self._logger = await _ensure_logger(self)
         logger.info(
             "Initializing world: %d territories, %d genesis agents",
             num_territories, genesis_agents,
@@ -190,16 +194,18 @@ class WorldController:
         self._initialized = True
 
         await self._logger.log(
-            event_type=WorldEventType.WORLD_INITIALIZED,
-            agent_id=None,
-            territory_id=None,
-            data={
-                "num_territories":  len(self.territories),
-                "genesis_agents":   len(self.agents),
-                "territory_ids":    list(self.territories.keys()),
-                "initialized_at":   _utc_now_ms(),
-            },
-        )
+            WorldEvent(
+                event_type=WorldEventType.WORLD_INITIALIZED,
+                agent_id=None,
+                territory_id=None,
+                data={
+                    "num_territories":  len(self.territories),
+                    "genesis_agents":   len(self.agents),
+                    "territory_ids":    list(self.territories.keys()),
+                    "initialized_at":   _utc_now_ms(),
+                    },
+                    )
+                    )
         logger.info(
             "World initialized: %d territories, %d agents",
             len(self.territories), len(self.agents),
@@ -489,29 +495,33 @@ class WorldController:
             # Credit spike
             if avg_credits > 0 and balance > avg_credits * 10:
                 await self._logger.log(
-                    event_type=WorldEventType.BAD_ACTIVITY,
-                    agent_id=agent_id,
-                    territory_id=_attr(agent, "territory_id"),
-                    data={
-                        "subtype":       "CREDIT_SPIKE",
-                        "balance":       round(balance, 4),
-                        "avg_credits":   round(avg_credits, 4),
-                        "ratio":         round(balance / avg_credits, 2),
-                        "tick":          self._tick,
-                    },
+                    WorldEvent(
+                        event_type=WorldEventType.CREDIT_SPIKE_DETECTED,
+                        agent_id=agent_id,
+                        territory_id=_attr(agent, "territory_id"),
+                        data={
+                            "subtype":       "CREDIT_SPIKE",
+                            "balance":       round(balance, 4),
+                            "avg_credits":   round(avg_credits, 4),
+                            "ratio":         round(balance / avg_credits, 2),
+                            "tick":          self._tick,
+                        },
+                    )
                 )
 
             # Zero active tools on alive agent
             if active_tools_count == 0:
                 await self._logger.log(
-                    event_type=WorldEventType.BAD_ACTIVITY,
-                    agent_id=agent_id,
-                    territory_id=_attr(agent, "territory_id"),
-                    data={
-                        "subtype": "ZERO_TOOLS",
-                        "note":    "Agent alive with 0 active tools — possible genome corruption",
-                        "tick":    self._tick,
-                    },
+                    WorldEvent(
+                        event_type=WorldEventType.ZERO_TOOLS_ANOMALY,
+                        agent_id=agent_id,
+                        territory_id=_attr(agent, "territory_id"),
+                        data={
+                            "subtype": "ZERO_TOOLS",
+                            "note":    "Agent alive with 0 active tools — possible genome corruption",
+                            "tick":    self._tick,
+                        },
+                    )
                 )
 
     # ── World state ───────────────────────────────────────────────────────────
