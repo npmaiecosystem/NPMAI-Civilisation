@@ -85,7 +85,7 @@ def _build_backend(provider: str, model: str):
     try:
         from npmai_agents import Ollama_Local, OpenAIBackend, AnthropicBackend, GeminiBackend, GroqBackend, MistralBackend, CohereBackend, AzureOpenAIBackend, BedrockBackend, HuggingFaceBackend, LlamaCppBackend
         _class_map = {
-            "npmai":     "NPMAIBackend",
+            "npmai":     "Ollama",
             "local":     "OllamaBackend",
             "openai":    "OpenAIBackend",
             "groq":      "GroqBackend",
@@ -93,13 +93,13 @@ def _build_backend(provider: str, model: str):
             "gemini":    "GeminiBackend",
             "mistral":   "MistralBackend",
             "cohere":    "CohereBackend",
-            "azure":     "AzureBackend",
+            "azure":     "AzureOpenAIBackend",
             "bedrock":   "BedrockBackend",
             "hf":        "HuggingFaceBackend",
             "llamacpp":  "LlamaCppBackend",
         }
 
-        class_name = _class_map.get(provider, "NPMAIBackend")
+        class_name = _class_map.get(provider, "Ollama")
         classes = ["openai", "anthropic", "gemini", "groq", "mistral", "cohere", "hf"] 
         if provider in classes:
             Backend = _class_map.get(provider, "NPMAIBackend")
@@ -137,48 +137,37 @@ def _build_backend(provider: str, model: str):
             except:
                 return "Problem in LLM"
         elif provider=="azure":
+            if api_key and endpoint and deployment:
+                try:
+                    conf_llm = AzureOpenAIBackend(api_key=api_key, endpoint=endpoint, deployment=deployment, api_version= api_version if api_version else "2024-08-01-preview")
+                    if conf_llm:
+                        return conf_llm
+                    else:
+                        return "Sorry problem in configuration of LLM."
+                except:
+                    return "Problem in LLM."
+            elif api_key and endpoint and deployment is None:
+                return "Sorry you did not entered some important arguments api_key, endpoint, deployment."
+            else:
+                return "Please check again is you entered arguments in proper way or not" 
+        elif provider=="llamacpp":
             try:
-                if api_key and endpoint and deployment:
-                    try:
-                        conf_llm = AzureOpenAIBackend(api_key=api_key, endpoint=endpoint, deployment=deployment, api_version= api_version if api_version else "2024-08-01-preview")
-                        if conf_llm:
-                            return conf_llm
-                        else:
-                            return "Sorry no response from LLM."
-                    except:
-                        return "Problem in LLM."
-                elif api_key and endpoint and deployment is None:
-                    return "Sorry you did not entered"
-                    """ TOMMOROW WE WILL CONTINUE """
-                    
-    except ImportError:
-        # Fallback: the package may expose provider-named classes.
-        # We attempt common names and fall through gracefully.
-        _class_map = {
-            "npmai":     "NPMAIBackend",
-            "local":     "OllamaBackend",
-            "openai":    "OpenAIBackend",
-            "groq":      "GroqBackend",
-            "anthropic": "AnthropicBackend",
-            "gemini":    "GeminiBackend",
-            "mistral":   "MistralBackend",
-            "cohere":    "CohereBackend",
-            "azure":     "AzureBackend",
-            "bedrock":   "BedrockBackend",
-            "hf":        "HuggingFaceBackend",
-            "llamacpp":  "LlamaCppBackend",
-        }
-        class_name = _class_map.get(provider, "NPMAIBackend")
-        import npmai_agents as _pkg
-        BackendClass = getattr(_pkg, class_name, None)
-        if BackendClass is None:
-            # Ultimate fallback — return a plain dict spec; AgentBrain may
-            # accept this depending on the package version.
-            return {"provider": provider, "model": model}
+                conf_llm = LlamaCppBackend()
+                if conf_llm:
+                    return conf_llm
+                else:
+                    return "Some problem in configuration of LLM."
+            except:
+                return "Problem in Configuration check the server"
         else:
-            return BackendClass(api_key=model=model)
-
-
+            try:
+                from npmai import Ollama
+                llm = Ollama(model=model,temperature=0.5)
+                return llm
+            except:
+                return "Please install npmai"
+                
+            
 def _backends_from_genome(genome: Genome) -> Dict[str, Any]:
     """
     Derive all 5 LLM backend objects from genome.parameter_genes.
