@@ -567,6 +567,20 @@ class WorldController:
             "world_statistics": self.get_world_statistics(),
         }
 
+    async def save_world_state(self) -> None:
+        """Persist current world state on shutdown. Called by main.py's
+        signal handler. Reuses the existing snapshot engine rather than
+        inventing a separate persistence path."""
+        try:
+            world_state = await self.get_world_state()
+            await self.snapshot_engine.take_world_snapshot(
+                snapshot_data=world_state,
+                tick=self._tick,
+            )
+            logger.info("World state saved at tick %d (shutdown)", self._tick)
+        except Exception as exc:
+            logger.error("save_world_state() failed: %s", exc)
+
     def _build_world_state_summary(self) -> Dict[str, Any]:
         """Lightweight summary passed to each agent.tick() — not full serialization."""
         return {

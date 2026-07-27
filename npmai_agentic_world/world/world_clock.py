@@ -21,13 +21,12 @@ from typing import Any, Optional, TYPE_CHECKING
 
 from config.constants import WORLD_CONSTANTS
 from data.event_logger import EventLogger
-from data.event_types import WorldEventType
+from data.event_types import WorldEventType, WorldEvent
 
 if TYPE_CHECKING:
     pass
 
 logger = logging.getLogger("npmai_world.clock")
-
 
 class WorldClock:
     """
@@ -74,7 +73,12 @@ class WorldClock:
         self._stop_signal: bool  = False
         self._real_start:  Optional[float] = None   # wall-clock start time
 
-        self._logger = EventLogger.get_instance()
+        self._logger: Optional[EventLogger] = None
+
+    async def _ensure_logger(self) -> EventLogger:
+        if self._logger is None:
+            self._logger = await EventLogger.get_instance()
+        return self._logger
 
     # ── Main loop ─────────────────────────────────────────────────────────────
 
@@ -89,17 +93,19 @@ class WorldClock:
         self.is_running   = True
         self._stop_signal = False
         self._real_start  = time.monotonic()
-
+        await self._ensure_logger()
         await self._logger.log(
-            event_type=WorldEventType.WORLD_STARTED,
-            agent_id=None,
-            territory_id=None,
-            data={
-                "tick_duration_seconds": self.tick_duration_seconds,
-                "ticks_per_day":         self._ticks_per_day,
-                "start_time":            datetime.now(timezone.utc).isoformat(),
-            },
-        )
+            WorldEvent(
+                event_type=WorldEventType.WORLD_INITIALIZED,
+                agent_id=None,
+                territory_id=None,
+                data={
+                    "tick_duration_seconds": self.tick_duration_seconds,
+                    "ticks_per_day":         self._ticks_per_day,
+                    "start_time":            datetime.now(timezone.utc).isoformat(),
+                    },
+                    )
+                    )
 
         try:
             while not self._stop_signal:
@@ -125,10 +131,12 @@ class WorldClock:
         finally:
             self.is_running = False
             await self._logger.log(
-                event_type=WorldEventType.WORLD_STOPPED,
-                agent_id=None,
-                territory_id=None,
-                data={"final_tick": self.tick_count, "experiment_day": self.experiment_day},
+                WorldEvent(
+                    event_type=WorldEventType.WORLD_STOPPED,
+                    agent_id=None,
+                    territory_id=None,
+                    data={"final_tick": self.tick_count, "experiment_day": self.experiment_day},
+                    )
             )
 
     async def _advance_tick(self, world_controller: Any) -> None:
@@ -145,11 +153,13 @@ class WorldClock:
         except Exception as exc:
             logger.error("world_controller.process_tick(%d) raised: %s", tick, exc, exc_info=True)
             await self._logger.log(
-                event_type=WorldEventType.SYSTEM_ERROR,
-                agent_id=None,
-                territory_id=None,
-                data={"tick": tick, "error": str(exc), "context": "process_tick"},
-            )
+                WorldEvent(
+                    event_type=WorldEventType.SYSTEM_ERROR,
+                    agent_id=None,
+                    territory_id=None,
+                    data={"tick": tick, "error": str(exc), "context": "process_tick"},
+                    )
+                    )
 
         # ── Periodic: agent snapshots ─────────────────────────────────────────
         if tick % self._snapshot_interval == 0:
@@ -175,11 +185,13 @@ class WorldClock:
         # ── Log every N ticks to reduce Supabase pressure ────────────────────
         if tick % 50 == 0:
             await self._logger.log(
-                event_type=WorldEventType.CLOCK_TICK,
-                agent_id=None,
-                territory_id=None,
-                data=self.get_time_info(),
-            )
+                WorldEvent(
+                    event_type=WorldEventType.CLOCK_TICK,
+                    agent_id=None,
+                    territory_id=None,
+                    data=self.get_time_info(),
+                    )
+                    )
 
     # ── Control ───────────────────────────────────────────────────────────────
 

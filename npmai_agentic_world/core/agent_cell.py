@@ -216,12 +216,6 @@ def _backends_from_genome(genome: Genome) -> Dict[str, Any]:
                                        g("chatter_model",     "granite3.3:2b")),
     }
 
-
-async def _ensure_logger(self) -> EventLogger:
-        if self._logger is None:
-            self._logger = await EventLogger.get_instance()
-        return self._logger
-
 # ─────────────────────────────────────────────────────────────────────────────
 # AgentCell
 # ─────────────────────────────────────────────────────────────────────────────
@@ -360,34 +354,39 @@ class AgentCell(AgentBrain):
 
         # ── Logger ────────────────────────────────────────────────────────────
         self._logger: Optional[EventLogger] = None
-        
-        await self._ensure_logger()
-        
+
         # ── Birth event ───────────────────────────────────────────────────────
         asyncio.get_event_loop().call_soon(
             lambda: asyncio.ensure_future(self._log_born())
         )
 
+
+    async def _ensure_logger(self) -> EventLogger:
+        if self._logger is None:
+            self._logger = await EventLogger.get_instance()
+        return self._logger
+    
     # ── private helpers ───────────────────────────────────────────────────────
 
     async def _log_born(self) -> None:
+        await self._ensure_logger()
         await self._logger.log(
-            WorldEvent(
-                59,
-                event_type=WorldEventType.AGENT_BORN,
-                agent_id=self.agent_id,
-                territory_id=self.territory_id,
-                data={
-                    "name":        self.name,
-                    "generation":  self.generation,
-                    "parent_id":   self.parent_id,
-                    "lineage_id":  self.lineage_id,
-                    "born_at":     self.born_at,
-                    "genome":      self.genome.to_dict() if hasattr(self.genome, "to_dict") else str(self.genome),
-                    "vitals":      self._vitals_snapshot(),
-                    },
-                    )
-        )
+                WorldEvent(
+                    event_type=WorldEventType.AGENT_BORN,
+                    agent_id=self.agent_id,
+                    territory_id=self.territory_id,
+                    data={
+                        "name":        self.name,
+                        "generation":  self.generation,
+                        "parent_id":   self.parent_id,
+                        "lineage_id":  self.lineage_id,
+                        "born_at":     self.born_at,
+                        "genome":      self.genome.to_dict() if hasattr(self.genome, "to_dict") else str(self.genome),
+                        "vitals":      self._vitals_snapshot(),
+                        },
+                        )
+                        )
+        
 
     def _vitals_snapshot(self) -> Dict[str, Any]:
         return {
@@ -510,15 +509,18 @@ class AgentCell(AgentBrain):
         if age_ratio > 0.7:
             self.health = max(0.0, self.health - 0.05 * age_ratio)
 
+        await self._ensure_logger()
         # ── Starvation check ──────────────────────────────────────────────────
         if self.credits <= 0:
             if self._grace_period_start is None:
                 self._grace_period_start = _utc_now_ms()
                 await self._logger.log(
-                    event_type=WorldEventType.STARVATION_WARNING,
-                    agent_id=self.agent_id,
-                    territory_id=self.territory_id,
-                    data={"credits": self.credits, "tick": self._tick_count},
+                    WorldEvent(
+                        event_type=WorldEventType.STARVATION_WARNING,
+                        agent_id=self.agent_id,
+                        territory_id=self.territory_id,
+                        data={"credits": self.credits, "tick": self._tick_count},
+                )
                 )
             else:
                 grace_ms = _utc_now_ms() - self._grace_period_start
@@ -534,15 +536,17 @@ class AgentCell(AgentBrain):
                     # we just set status so the controller picks it up.
                     self.status = AgentStatus.DEAD
                     await self._logger.log(
-                        event_type=WorldEventType.AGENT_DIED,
-                        agent_id=self.agent_id,
-                        territory_id=self.territory_id,
-                        data={
-                            "mode":      DeathMode.STARVATION.value,
-                            "age":       self.age,
-                            "credits":   self.credits,
-                            "tick":      self._tick_count,
-                        },
+                        WorldEvent(
+                            event_type=WorldEventType.AGENT_DIED,
+                            agent_id=self.agent_id,
+                            territory_id=self.territory_id,
+                            data={
+                                "mode":      DeathMode.STARVATION.value,
+                                "age":       self.age,
+                                "credits":   self.credits,
+                                "tick":      self._tick_count,
+                                },
+                                )
                     )
                     return
         else:
@@ -555,15 +559,18 @@ class AgentCell(AgentBrain):
             # but we set the flag here so next tick respects it.
             self.status = AgentStatus.ELDER
             await self._logger.log(
-                event_type=WorldEventType.AGENT_ELDER,
-                agent_id=self.agent_id,
-                territory_id=self.territory_id,
-                data={"age": self.age, "max_age": self.max_age, "tick": self._tick_count},
-            )
+                WorldEvent(
+                    event_type=WorldEventType.AGENT_ELDER,
+                    agent_id=self.agent_id,
+                    territory_id=self.territory_id,
+                    data={"age": self.age, "max_age": self.max_age, "tick": self._tick_count},
+                    )
+                    )
+                
 
         # ── Memory tick ───────────────────────────────────────────────────────
         try:
-            await self.memory.tick()
+            self.memory.tick()
         except Exception as exc:
             await self._logger.log(
                 event_type=WorldEventType.SYSTEM_ERROR,
@@ -572,19 +579,22 @@ class AgentCell(AgentBrain):
                 data={"error": str(exc), "context": "memory.tick"},
             )
 
+
         # ── Tick summary log (every 10 ticks to reduce Supabase pressure) ────
         if self._tick_count % 10 == 0:
             await self._logger.log(
-                event_type=WorldEventType.AGENT_TICK,
-                agent_id=self.agent_id,
-                territory_id=self.territory_id,
-                data={
-                    **self._vitals_snapshot(),
-                    "tick":         self._tick_count,
-                    "total_burn":   round(total_burn, 6),
-                    "world_tick":   world_state.get("tick", 0),
-                },
-            )
+                WorldEvent(
+                    event_type=WorldEventType.AGENT_TICK,
+                    agent_id=self.agent_id,
+                    territory_id=self.territory_id,
+                    data={
+                        **self._vitals_snapshot(),
+                        "tick":         self._tick_count,
+                        "total_burn":   round(total_burn, 6),
+                        "world_tick":   world_state.get("tick", 0),
+                        },
+                        )
+                        )
 
     def _calculate_memory_burn(self) -> float:
         """Credits burned per tick proportional to memory size."""
@@ -637,11 +647,13 @@ class AgentCell(AgentBrain):
         self.credits -= init_cost
 
         await self._logger.log(
-            event_type=WorldEventType.TASK_STARTED,
-            agent_id=self.agent_id,
-            territory_id=self.territory_id,
-            data={"task_id": task_id, "task": task[:200], "source": source},
-        )
+            WorldEvent(
+                event_type=WorldEventType.TASK_STARTED,
+                agent_id=self.agent_id,
+                territory_id=self.territory_id,
+                data={"task_id": task_id, "task": task[:200], "source": source},
+                )
+                )
 
         # ── Build enriched task string for Planner ────────────────────────────
         context_header = self.get_planner_context(task)
@@ -741,18 +753,20 @@ class AgentCell(AgentBrain):
 
         event_type = WorldEventType.TASK_COMPLETED if success else WorldEventType.TASK_FAILED
         await self._logger.log(
-            event_type=event_type,
-            agent_id=self.agent_id,
-            territory_id=self.territory_id,
-            data={
-                "task_id":       task_id,
-                "success":       success,
-                "output_len":    len(output),
-                "credits_earned": round(credits_earned, 4),
-                "tools_used":    tools_used,
-                "duration_ms":   _utc_now_ms() - started_at,
-            },
-        )
+            WorldEvent(
+                event_type=event_type,
+                agent_id=self.agent_id,
+                territory_id=self.territory_id,
+                data={
+                    "task_id":       task_id,
+                    "success":       success,
+                    "output_len":    len(output),
+                    "credits_earned": round(credits_earned, 4),
+                    "tools_used":    tools_used,
+                    "duration_ms":   _utc_now_ms() - started_at,
+                    },
+                    )
+                    )
 
         return {
             "success":        success,
@@ -792,10 +806,12 @@ class AgentCell(AgentBrain):
         content  = message.get("content", "")
 
         await self._logger.log(
-            event_type=WorldEventType.DIVINE_MESSAGE_RECEIVED,
-            agent_id=self.agent_id,
-            territory_id=self.territory_id,
-            data={"msg_id": msg_id, "persona": persona, "type": msg_type, "content": content[:300]},
+            WorldEvent(
+                event_type=WorldEventType.DIVINE_MESSAGE_RECEIVED,
+                agent_id=self.agent_id,
+                territory_id=self.territory_id,
+                data={"msg_id": msg_id, "persona": persona, "type": msg_type, "content": content[:300]},
+                )
         )
 
         # Format as divine experience — the agent has no frame of reference
@@ -873,18 +889,20 @@ class AgentCell(AgentBrain):
             self._divine_message_queue.pop(0)
 
         await self._logger.log(
-            event_type=WorldEventType.DIVINE_INTERPRETED,
-            agent_id=self.agent_id,
-            territory_id=self.territory_id,
-            data={
-                "msg_id":        msg_id,
-                "persona":       persona,
-                "decision":      decision,
-                "divine_favor":  round(self.divine_favor, 4),
-                "response_len":  len(agent_response),
-                "response_snippet": agent_response[:200],
-            },
-        )
+            WorldEvent(
+                event_type=WorldEventType.DIVINE_INTERPRETED,
+                agent_id=self.agent_id,
+                territory_id=self.territory_id,
+                data={
+                    "msg_id":        msg_id,
+                    "persona":       persona,
+                    "decision":      decision,
+                    "divine_favor":  round(self.divine_favor, 4),
+                    "response_len":  len(agent_response),
+                    "response_snippet": agent_response[:200],
+                    },
+                    )
+                    )
 
         return agent_response
 
@@ -1003,16 +1021,18 @@ class AgentCell(AgentBrain):
             return result
 
         await self._logger.log(
-            event_type=WorldEventType.SOCIAL_INTERACTION,
-            agent_id=self.agent_id,
-            territory_id=self.territory_id,
-            data={
-                "other_agent_id":  other_agent_id,
-                "type":            interaction_type,
-                "trust_after":     round(self.relationships.get(other_agent_id, 0.0), 4),
-                "credits_delta":   round(result.get("credits_delta", 0.0), 4),
-                "credits_balance": round(self.credits, 4),
-            },
+            WorldEvent(
+                event_type=WorldEventType.SOCIAL_INTERACTION,
+                agent_id=self.agent_id,
+                territory_id=self.territory_id,
+                data={
+                    "other_agent_id":  other_agent_id,
+                    "type":            interaction_type,
+                    "trust_after":     round(self.relationships.get(other_agent_id, 0.0), 4),
+                    "credits_delta":   round(result.get("credits_delta", 0.0), 4),
+                    "credits_balance": round(self.credits, 4),
+                    },
+                    )
         )
         result["event_logged"] = True
         return result

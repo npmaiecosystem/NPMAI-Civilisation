@@ -114,6 +114,10 @@ class WorldEventType(str, Enum):
 
     # --- SYSTEM ---
     WORLD_INITIALIZED = "WORLD_INITIALIZED"
+    WORLD_STOPPED = "WORLD_STOPPED"
+    SYSTEM_ERROR = "SYSTEM_ERROR"
+    CLOCK_TICK = "CLOCK_TICK"
+    AGENT_TICK= "AGENT_TICK"
 
 
 @unique
@@ -211,6 +215,10 @@ _EVENT_TYPE_TO_CATEGORY: dict[WorldEventType, EventCategory] = {
     WorldEventType.ZERO_TOOLS_ANOMALY: EventCategory.BAD_ACTIVITY,
     # SYSTEM
     WorldEventType.WORLD_INITIALIZED: EventCategory.SYSTEM,
+    WorldEventType.WORLD_STOPPED: EventCategory.SYSTEM,
+    WorldEventType.SYSTEM_ERROR: EventCategory.SYSTEM,
+    WorldEventType.CLOCK_TICK: EventCategory.SYSTEM,
+    WorldEventType.AGENT_TICK: EventCategory.SYSTEM,
 }
 
 # Sanity check at import time: every enum member must be categorized.
